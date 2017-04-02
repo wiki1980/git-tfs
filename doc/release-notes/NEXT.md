@@ -4,3 +4,4 @@
 * Improve branch point changeset detection (#1017 & #973, @fourpastmidnight & @jeremy-sylvis-tmg)
 * Add support for deleting TFS shelvesets using the shelve-delete command
 * Allow using both "--changeset" and "--up-to" options at the same time (#1057) to fetch a specific range of TFS changesets
+* Add support for Visual Studio 2017 (#1054 & #1056, @fourpastmidnight)
