@@ -19,7 +19,6 @@ namespace GitTfs.Core
         private IDictionary<string, IGitTfsRemote> _cachedRemotes;
         private readonly Repository _repository;
         private readonly RemoteConfigConverter _remoteConfigReader;
-        private readonly bool _disableGitignoreSupport;
 
         public GitRepository(string gitDir, IContainer container, Globals globals, RemoteConfigConverter remoteConfigReader)
             : base(container)
@@ -29,12 +28,6 @@ namespace GitTfs.Core
             GitDir = gitDir;
             _repository = new Repository(GitDir);
             _remoteConfigReader = remoteConfigReader;
-
-            var value = GetConfig<string>(GitTfsConstants.DisableGitignoreSupport, null);
-            bool disableGitignoreSupport;
-            if (value != null && bool.TryParse(value, out disableGitignoreSupport))
-                _disableGitignoreSupport = disableGitignoreSupport;
-
         }
 
         ~GitRepository()
@@ -334,7 +327,9 @@ namespace GitTfs.Core
 
         public GitCommit GetCommit(string commitish)
         {
-            return new GitCommit(_repository.Lookup<Commit>(commitish));
+            var commit = _repository.Lookup<Commit>(commitish);
+
+            return commit is null ? null : new GitCommit(commit);
         }
 
         public MergeResult Merge(string commitish)
@@ -403,12 +398,16 @@ namespace GitTfs.Core
 
         public TfsChangesetInfo GetTfsCommit(GitCommit commit)
         {
+            if (commit is null) throw new ArgumentNullException(nameof(commit));
+
             return TryParseChangesetInfo(commit.Message, commit.Sha);
         }
 
         public TfsChangesetInfo GetTfsCommit(string sha)
         {
-            return GetTfsCommit(GetCommit(sha));
+            var gitCommit = GetCommit(sha);
+
+            return gitCommit is null ? null : GetTfsCommit(gitCommit);
         }
 
         private TfsChangesetInfo TryParseChangesetInfo(string gitTfsMetaInfo, string commit)
@@ -772,7 +771,7 @@ namespace GitTfs.Core
 
         public bool IsPathIgnored(string relativePath)
         {
-            return !_disableGitignoreSupport && _repository.Ignore.IsPathIgnored(relativePath);
+            return _repository.Ignore.IsPathIgnored(relativePath);
         }
 
         public string CommitGitIgnore(string pathToGitIgnoreFile)
@@ -790,11 +789,41 @@ namespace GitTfs.Core
 
             _repository.Refs.Add(ShortToTfsRemoteName("default"), new ObjectId(sha));
             _repository.Refs.Add(ShortToLocalName("master"), new ObjectId(sha));
+
+            return sha;
+        }
+
+        public void UseGitIgnore(string pathToGitIgnoreFile)
+        {
             //Should add ourself the rules to the temporary rules because committing directly to the git database
             //prevent libgit2sharp to detect the new .gitignore file
             _repository.Ignore.AddTemporaryRules(File.ReadLines(pathToGitIgnoreFile));
+        }
 
-            return sha;
+        public IDictionary<int, string> GetCommitChangeSetPairs()
+        {
+            var allCommits = _repository.Commits.QueryBy(new CommitFilter());
+            var pairs = new Dictionary<int, string>() ;
+            foreach (var c in allCommits)
+            {
+                int changesetId;
+                if (TryParseChangesetId(c.Message, out changesetId))
+                {
+                    pairs.Add(changesetId, c.Sha);
+                }
+                else
+                {
+                    foreach (var note in c.Notes)
+                    {
+                        if (TryParseChangesetId(note.Message, out changesetId))
+                        {
+                            pairs.Add(changesetId, c.Sha);
+                        }
+                    }
+                }
+            }
+
+            return pairs;
         }
     }
 }
